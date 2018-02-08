@@ -1,0 +1,29 @@
+{
+  "name": "plt-contract-queue",
+  "version": "0.0.1",
+  "main": "truffle.js",
+  "description": "Oxygen platform sale queue smartcontract",
+  "private": true,
+  "engines": {
+    "node": ">=8.9",
+    "npm": ">=5.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@bitbucket.org/oxygen-git/plt-contract-queue.git"
+  },
+  "homepage": "https://bitbucket.org/oxygen-git/plt-contract-queue#readme",
+  "author": "Oxygen development team",
+  "license": "UNLICENSED",
+  "scripts": {
+    "compile": "node_modules/.bin/truffle compile",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ethereum",
+    "smartcontract"
+  ],
+  "dependencies": {
+    "truffle": "^4.0.6"
+  }
+}
