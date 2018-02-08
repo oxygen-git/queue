@@ -4,7 +4,7 @@ pragma solidity 0.4.19;
 /* Only owner is eglible to perform core functions like authorizing participants as confirmed investors and withdrawing their money as Token sale funds. */
 contract TokenSaleQueue {
     using SafeMath for uint256;
-    
+
     address public owner;
     address public potentialOwner;
 
@@ -18,7 +18,7 @@ contract TokenSaleQueue {
 
     function setNewOwner(address _new) public onlyOwner {
         require(_new != address(0));
-        
+
         potentialOwner = _new;
         NewPotentialOwner(owner, _new);
     }
@@ -40,6 +40,7 @@ contract TokenSaleQueue {
 
     mapping(address => Record) public deposits;
     address public wallet;
+    address public manager;
     uint256 public deadline; /* blocks */
 
     function balanceOf(address who) public view returns (uint256 balance) {
@@ -64,10 +65,23 @@ contract TokenSaleQueue {
     event Process(address who);
     event Refund(address who);
 
-    function TokenSaleQueue(address _wallet, uint _deadline) public {
-        wallet = _wallet;
-        deadline = _deadline;
+    function TokenSaleQueue(address _wallet, address _manager,  uint _deadline) public {
         owner = msg.sender;
+        wallet = _wallet;
+        manager = _manager;
+        deadline = _deadline;
+    }
+
+    function setNewManager(address _newManager) public onlyOwner {
+        require(_newManager != address(0));
+
+        manager = _newManager;
+    }
+
+    function setNewWallet(address _newWallet) public onlyOwner {
+        require(_newWallet != address(0));
+
+        wallet = _newWallet;
     }
 
     /* 3. Contract has payable method deposit */
@@ -77,7 +91,7 @@ contract TokenSaleQueue {
         require(msg.value > 0);
         /* Contract checks that `DEADLINE` is not reached. If it is reached, it returns all funds to `sender` */
         require(block.number <= deadline);
-        
+
         /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
         deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
         Deposit(msg.sender, msg.value);
@@ -85,38 +99,37 @@ contract TokenSaleQueue {
 
     /* 4. Contract has method withdraw with amount argument */
     /* Ability to withdraw funds for participant which he eariler had put in the contract using deposit function (1.) */
-    function withdraw(uint256 amount) public {
-        /* Contract checks that method invocation attaches non-zero value */
-        require(amount > 0);
-        
+    function withdraw() public {
         /* Contract checks that balance of the sender in DEPOSITS mapping is equal amount */
         Record storage record = deposits[msg.sender];
-        require(record.balance == amount);
-        
+        require(record.balance > 0);
+
+        uint256 balance = record.balance;
         /* Contract sets the amount in corresponding record in DEPOSITS mapping to zero */
         record.balance = 0;
-        
+
         /* Contract transfers amount to the sender from it's own balance */
-        msg.sender.transfer(amount);
+        msg.sender.transfer(balance);
         Withdrawal(msg.sender);
     }
 
     /* 5. Contract has method authorize with address argument */
-    /* Owner authorizes particular participant - operation that allows to use participant money in Token sale */
-    function authorize(address who) public onlyOwner {
-        /* Contract checks if sender is equal to OWNER */
+    /* Owner authorizes particular participant - operation that allows to use participant money in Token Sale */
+    function authorize(address who) public {
+        /* Contract checks if sender is equal to manager */
+        require(manager == msg.sender);
         require(who != address(0));
-        
+
         Record storage record = deposits[who];
         require(record.balance > 0);
-        
+
         /* Contract updates corresponding value in DEPOSITS mapping using address as the key and sets authorized = true */
         record.authroized = true;
         Authorized(who);
     }
 
     /* 6. Contract has method process */
-    /* Sender does final confirmation that his money will be used in the Token sale */
+    /* Sender does final confirmation that his money will be used in the Token Sale */
     function process() public {
         Record storage record = deposits[msg.sender];
 
@@ -127,7 +140,7 @@ contract TokenSaleQueue {
         uint256 balance = record.balance;
         /* Contract sets balance of the sender entry to zero in the DEPOSITS */
         record.balance = 0;
-        
+
         /* Contract transfers balance to the WALLET */
         wallet.transfer(balance);
 
@@ -141,12 +154,12 @@ contract TokenSaleQueue {
         require(who != address(0));
         /* Contract checks if current timestamp is later than DEADLINE */
         require(block.number > deadline);
-        
+
         /* Contract picks the record in DEPOSIT mapping with key equal to address argument (RECORD) */
         Record storage record = deposits[who];
         /* Contract checks if RECORD has non-zero balance */
         require(record.balance > 0);
-        
+
         uint256 balance = record.balance;
         /* Contract sets balance of RECORD to zero */
         record.balance = 0;
