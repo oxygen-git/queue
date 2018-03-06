@@ -1,4 +1,4 @@
-pragma solidity 0.4.20;
+pragma solidity 0.4.19;
 
 contract ERC20Interface {
     function transfer(address to, uint256 value) public returns (bool);
@@ -66,14 +66,14 @@ contract TokenSaleQueue {
         require(_owner != address(0));
         require(_manager != address(0));
         require(_recepient != address(0));
-        
+
         owner = _owner;
         manager = _manager;
         recepient = _recepient;
         deadline = _deadline;
         extendedTime = _extendedTime;
-	    maxTime = _maxTime;
-	    finalTime = deadline + extendedTime;
+        maxTime = _maxTime;
+        finalTime = deadline + extendedTime;
     }
 
     modifier onlyManager() {
@@ -92,8 +92,12 @@ contract TokenSaleQueue {
         Whitelist(who);
     }
 
-    function IsInWhiteList(address who) public view returns (bool result) {
+    function isInWhiteList(address who) public view returns (bool result) {
         return whitelist[who];
+    }
+
+    function() public payable {
+        deposit();
     }
 
     /* 3. Contract has payable method deposit */
@@ -248,8 +252,11 @@ contract TokenSaleQueue {
         TokenProcess(tokenWallet, msg.sender);
     }
 
-    function() public payable {
-        deposit();
+    function changeExtendedTime(uint _extendedTime) public onlyOwner returns(uint256) {
+        require((deadline + _extendedTime) < maxTime);
+        extendedTime = _extendedTime;
+        finalTime = deadline + extendedTime;
+        return finalTime;
     }
 
     function reclaimTokens(address[] tokens) public {
@@ -262,7 +269,7 @@ contract TokenSaleQueue {
             token.transfer(recepient, balance);
         }
     }
-    
+
     function destroy() onlyOwner public {
         require(block.number > finalTime);
 
@@ -270,15 +277,19 @@ contract TokenSaleQueue {
         selfdestruct(recepient);
     }
 
-    function changeExtendedTime(uint _extendedTime) public onlyOwner {
-        require((deadline + extendedTime) < maxTime);
-        extendedTime = _extendedTime;
-        finalTime = deadline + extendedTime;
-    }
-
     //for test only
     function changeDeadline(uint _deadline) public onlyOwner {
         deadline = _deadline;
+    }
+
+    //for test only
+    function changeFinalTime(uint _finalTime) public onlyOwner {
+        finalTime = _finalTime;
+    }
+
+    //for test only
+    function getBlockNumber() public view returns (uint256) {
+        return uint(block.number);
     }
 }
 
