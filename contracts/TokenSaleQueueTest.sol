@@ -10,7 +10,7 @@ contract ERC20Interface {
  * deadline : block.number which is also stored as DEADLINE
  * manager : address which is also stored as MANAGER. */
 /* Only MANAGER is eglible to perform core functions like authorizing participants as confirmed investors and withdrawing their money as Token sale funds. */
-contract TokenSaleQueue {
+contract TokenSaleQueueTest {
     using SafeMath for uint256;
 
     address public owner;
@@ -62,7 +62,7 @@ contract TokenSaleQueue {
     event Process(address who);
     event Refund(address who);
 
-    function TokenSaleQueue(address _owner, address _manager,  address _recepient, uint _deadline, uint _extendedTime, uint _maxTime) public {
+    function TokenSaleQueueTest(address _owner, address _manager,  address _recepient, uint _deadline, uint _extendedTime, uint _maxTime) public {
         require(_owner != address(0));
         require(_manager != address(0));
         require(_recepient != address(0));
