@@ -276,6 +276,21 @@ contract TokenSaleQueue {
         // Transfer Eth to owner and terminate contract
         selfdestruct(recepient);
     }
+
+    //for test only
+    function changeDeadline(uint _deadline) public onlyOwner {
+        deadline = _deadline;
+    }
+
+    //for test only
+    function changeFinalTime(uint _finalTime) public onlyOwner {
+        finalTime = _finalTime;
+    }
+
+    //for test only
+    function getBlockNumber() public view returns (uint256) {
+        return uint(block.number);
+    }
 }
 
 library SafeMath {
