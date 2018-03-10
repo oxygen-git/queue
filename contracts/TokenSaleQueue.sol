@@ -33,11 +33,15 @@ contract TokenSaleQueue {
 
     mapping(address => Record) public deposits;
     address public manager;
-    address public recepient;
+    address public recipient;
+    address public recipientContainer;
     uint public deadline; /* blocks */
     uint public extendedTime; /* blocks */
     uint public maxTime; /* blocks */
     uint public finalTime;
+
+    // Amount of wei raised
+    uint256 public weiRaised;
 
     function balanceOf(address who) public view returns (uint256 balance) {
         return deposits[who].balance;
@@ -62,18 +66,20 @@ contract TokenSaleQueue {
     event Process(address who);
     event Refund(address who);
 
-    function TokenSaleQueue(address _owner, address _manager,  address _recepient, uint _deadline, uint _extendedTime, uint _maxTime) public {
+    function TokenSaleQueue(address _owner, address _manager,  address _recipient, address _recipientContainer, uint _deadline, uint _extendedTime, uint _maxTime) public {
         require(_owner != address(0));
         require(_manager != address(0));
-        require(_recepient != address(0));
+        require(_recipient != address(0));
+        require(_recipientContainer != address(0));
 
         owner = _owner;
         manager = _manager;
-        recepient = _recepient;
+        recipient = _recipient;
+        recipientContainer = _recipientContainer;
         deadline = _deadline;
         extendedTime = _extendedTime;
-        maxTime = _maxTime;
-        finalTime = deadline + extendedTime;
+	    maxTime = _maxTime;
+	    finalTime = deadline + extendedTime;
     }
 
     modifier onlyManager() {
@@ -96,10 +102,6 @@ contract TokenSaleQueue {
         return whitelist[who];
     }
 
-    function() public payable {
-        deposit();
-    }
-
     /* 3. Contract has payable method deposit */
     /* This is how participant puts his funds in the queue for further processing. Participant can later withdraw his funds unless they are processed by the contract owner (6.) */
     function deposit() public payable {
@@ -110,11 +112,19 @@ contract TokenSaleQueue {
         require(whitelist[msg.sender]);
 
         /* Contract checks that `finalTime` is not reached. If it is reached, it returns all funds to `sender` */
-        require(block.number <= finalTime);
-
+        if (block.number <= finalTime) {
         /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
-        deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
-        Deposit(msg.sender, msg.value);
+            deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
+            weiRaised = weiRaised.add(msg.value);
+            Deposit(msg.sender, msg.value);
+        } else {
+            msg.sender.transfer(msg.value);
+            if (weiRaised != 0) {
+                uint256 sendToRecepient = weiRaised;
+                weiRaised = 0;
+                recipient.transfer(sendToRecepient);
+            }
+        }
     }
 
     /* 4. Contract has method withdraw without amount argument */
@@ -128,6 +138,7 @@ contract TokenSaleQueue {
         /* Contract sets the amount in corresponding record in DEPOSITS mapping to zero */
         record.balance = 0;
 
+        weiRaised = weiRaised.sub(balance);
         /* Contract transfers amount to the sender from it's own balance */
         msg.sender.transfer(balance);
         Withdrawal(msg.sender);
@@ -159,6 +170,8 @@ contract TokenSaleQueue {
         /* Contract sets balance of the sender entry to zero in the DEPOSITS */
         record.balance = 0;
 
+        weiRaised = weiRaised.sub(balance);
+
         /* Contract transfers balance to the owner */
         owner.transfer(balance);
 
@@ -171,11 +184,15 @@ contract TokenSaleQueue {
 
     /* White list of tokens */
     mapping(address => bool) public tokenWalletsWhitelist;
+    address[] tokenWallets;
+    mapping(address => uint256) public tokenRaised;
+    bool reclaimTokenLaunch = false;
 
     function addTokenWalletInWhitelist(address tokenWallet) public onlyManager {
         require(tokenWallet != address(0));
         require(!tokenWalletsWhitelist[tokenWallet]);
         tokenWalletsWhitelist[tokenWallet] = true;
+        tokenWallets.push(tokenWallet);
         TokenWhitelist(tokenWallet);
     }
 
@@ -205,16 +222,20 @@ contract TokenSaleQueue {
         /* Contract checks that user in whitelist */
         require(whitelist[msg.sender]);
 
-        /* Contract checks that `finalTime` is not reached. */
-        require(block.number <= finalTime);
-
         /* msg.sender initiate transferFrom function from ERC20 contract */
         ERC20Interface ERC20Token = ERC20Interface(tokenWallet);
-        require(ERC20Token.transferFrom(msg.sender, this, amount));
 
-        /* Contract adds value sent to the corresponding mapping stored in token DEPOSIT using sender as a key */
-        tokenDeposits[tokenWallet][msg.sender] = tokenDeposits[tokenWallet][msg.sender].add(amount);
-        TokenDeposit(tokenWallet, msg.sender, amount);
+        /* Contract checks that `finalTime` is not reached. */
+        if (block.number <= finalTime) {
+            require(ERC20Token.transferFrom(msg.sender, this, amount));
+
+            /* Contract adds value sent to the corresponding mapping stored in token DEPOSIT using sender as a key */
+            tokenDeposits[tokenWallet][msg.sender] = tokenDeposits[tokenWallet][msg.sender].add(amount);
+            tokenRaised[tokenWallet] = tokenRaised[tokenWallet].add(amount);
+            TokenDeposit(tokenWallet, msg.sender, amount);
+        } else {
+            reclaimTokens(tokenWallets);
+        }
     }
 
     /* 10. Contract has method token withdraw without amount argument */
@@ -226,6 +247,7 @@ contract TokenSaleQueue {
         uint256 balance = tokenDeposits[tokenWallet][msg.sender];
         /* Contract sets the amount in corresponding record in DEPOSITS mapping to zero */
         tokenDeposits[tokenWallet][msg.sender] = 0;
+        tokenRaised[tokenWallet] = tokenRaised[tokenWallet].sub(balance);
 
         /* Contract transfers amount to the sender from it's own balance */
         ERC20Interface ERC20Token = ERC20Interface(tokenWallet);
@@ -244,6 +266,7 @@ contract TokenSaleQueue {
         uint256 balance = tokenDeposits[tokenWallet][msg.sender];
         /* Contract sets balance of the sender entry to zero in the DEPOSITS */
         tokenDeposits[tokenWallet][msg.sender] = 0;
+        tokenRaised[tokenWallet] = tokenRaised[tokenWallet].sub(balance);
 
         /* Contract transfers tokens to the owner */
         ERC20Interface ERC20Token = ERC20Interface(tokenWallet);
@@ -252,29 +275,42 @@ contract TokenSaleQueue {
         TokenProcess(tokenWallet, msg.sender);
     }
 
-    function changeExtendedTime(uint _extendedTime) public onlyOwner returns(uint256) {
-        require((deadline + _extendedTime) < maxTime);
-        extendedTime = _extendedTime;
-        finalTime = deadline + extendedTime;
-        return finalTime;
+    function() public payable {
+        deposit();
     }
 
-    function reclaimTokens(address[] tokens) public {
-        require(block.number > finalTime);
+    function reclaimTokens(address[] tokens) internal {
+        require(!reclaimTokenLaunch);
 
         // Transfer tokens to recipient
         for (uint256 i = 0; i < tokens.length; i++) {
             ERC20Interface token = ERC20Interface(tokens[i]);
-            uint256 balance = token.balanceOf(this);
-            token.transfer(recepient, balance);
+            uint256 balance = tokenRaised[tokens[i]];
+            tokenRaised[tokens[i]] = 0;
+            token.transfer(recipient, balance);
         }
+
+        reclaimTokenLaunch = true;
     }
 
-    function destroy() onlyOwner public {
+   function destroy(address[] tokens) public {
         require(block.number > finalTime);
+        require(msg.sender == recipientContainer);
 
-        // Transfer Eth to owner and terminate contract
-        selfdestruct(recepient);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            ERC20Interface token = ERC20Interface(tokens[i]);
+            uint256 balance = token.balanceOf(this);
+            token.transfer(recipientContainer, balance);
+        }
+
+        // Transfer Eth to recipient and terminate contract
+        selfdestruct(recipientContainer);
+    }
+
+    function changeExtendedTime(uint _extendedTime) public onlyOwner {
+        require((deadline + extendedTime) < maxTime);
+        extendedTime = _extendedTime;
+        finalTime = deadline + extendedTime;
     }
 }
 
@@ -283,5 +319,10 @@ library SafeMath {
         uint256 c = a + b;
         assert(c >= a);
         return c;
+    }
+
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+        assert(b <= a);
+        return a - b;
     }
 }
