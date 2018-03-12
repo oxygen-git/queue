@@ -10,7 +10,7 @@ contract ERC20Interface {
  * deadline : block.number which is also stored as DEADLINE
  * manager : address which is also stored as MANAGER. */
 /* Only MANAGER is eglible to perform core functions like authorizing participants as confirmed investors and withdrawing their money as Token sale funds. */
-contract TokenSaleQueueTest {
+contract TokenSaleQueue {
     using SafeMath for uint256;
 
     address public owner;
@@ -43,6 +43,10 @@ contract TokenSaleQueueTest {
     // Amount of wei raised
     uint256 public weiRaised;
 
+    function() public payable {
+        deposit();
+    }
+
     function balanceOf(address who) public view returns (uint256 balance) {
         return deposits[who].balance;
     }
@@ -66,7 +70,7 @@ contract TokenSaleQueueTest {
     event Process(address who);
     event Refund(address who);
 
-    function TokenSaleQueueTest(address _owner, address _manager,  address _recipient, address _recipientContainer, uint _deadline, uint _extendedTime, uint _maxTime) public {
+    function TokenSaleQueue(address _owner, address _manager,  address _recipient, address _recipientContainer, uint _deadline, uint _extendedTime, uint _maxTime) public {
         require(_owner != address(0));
         require(_manager != address(0));
         require(_recipient != address(0));
@@ -78,8 +82,8 @@ contract TokenSaleQueueTest {
         recipientContainer = _recipientContainer;
         deadline = _deadline;
         extendedTime = _extendedTime;
-	      maxTime = _maxTime;
-	      finalTime = deadline + extendedTime;
+        maxTime = _maxTime;
+        finalTime = deadline + extendedTime;
     }
 
     modifier onlyManager() {
@@ -113,7 +117,7 @@ contract TokenSaleQueueTest {
 
         /* Contract checks that `finalTime` is not reached. If it is reached, it returns all funds to `sender` */
         if (block.number <= finalTime) {
-        /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
+            /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
             deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
             weiRaised = weiRaised.add(msg.value);
             Deposit(msg.sender, msg.value);
@@ -275,8 +279,24 @@ contract TokenSaleQueueTest {
         TokenProcess(tokenWallet, msg.sender);
     }
 
-    function() public payable {
-        deposit();
+    function destroy(address[] tokens) public {
+        require(msg.sender == recipientContainer);
+        require(block.number > finalTime);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            ERC20Interface token = ERC20Interface(tokens[i]);
+            uint256 balance = token.balanceOf(this);
+            token.transfer(recipientContainer, balance);
+        }
+
+        // Transfer Eth to recipient and terminate contract
+        selfdestruct(recipientContainer);
+    }
+
+    function changeExtendedTime(uint _extendedTime) public onlyOwner {
+        require((deadline + _extendedTime) < maxTime);
+        extendedTime = _extendedTime;
+        finalTime = deadline + extendedTime;
     }
 
     function reclaimTokens(address[] tokens) internal {
@@ -291,37 +311,6 @@ contract TokenSaleQueueTest {
         }
 
         reclaimTokenLaunch = true;
-    }
-
-   function destroy(address[] tokens) public {
-        require(block.number > finalTime);
-        require(msg.sender == recipientContainer);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            ERC20Interface token = ERC20Interface(tokens[i]);
-            uint256 balance = token.balanceOf(this);
-            token.transfer(recipientContainer, balance);
-        }
-
-        // Transfer Eth to recipient and terminate contract
-        selfdestruct(recipientContainer);
-    }
-
-    function changeExtendedTime(uint _extendedTime) public onlyOwner {
-        require((deadline + extendedTime) < maxTime);
-        extendedTime = _extendedTime;
-        finalTime = deadline + extendedTime;
-    }
-
-    //for test only
-    function changeDeadline(uint _deadline) public onlyOwner {
-        deadline = _deadline;
-    }
-
-    //for test only
-    function changeMaxTime(uint _maxTime) public onlyOwner {
-        maxTime = _maxTime;
-        finalTime = deadline + extendedTime;
     }
 }
 
