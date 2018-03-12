@@ -1,9 +1,8 @@
 var TokenSaleQueue = artifacts.require("./TokenSaleQueue.sol");
 var ERC20 = artifacts.require("./ERC20.sol");
 
-
 contract('TokenSaleQueue - Initial state', function(accounts) {
-    it("owner it is the first account", function() {
+    it("owner it is the zero account", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
             return instance.getOwner.call();
         }).then(function(owner) {
@@ -11,19 +10,27 @@ contract('TokenSaleQueue - Initial state', function(accounts) {
         });
     });
 
-    it("manager it is the third account", function() {
+    it("manager it is the first account", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
             return instance.getManager.call();
         }).then(function(manager) {
-            assert.equal(manager.valueOf(),  accounts[1], "accounts[2] wasn't in the manager");
+            assert.equal(manager.valueOf(),  accounts[1], "accounts[1] wasn't in the manager");
         });
     });
 
-    it("recepient it is the second account", function() {
+    it("recipient it is the second account", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
-            return instance.recepient.call();
-        }).then(function(recepient) {
-            assert.equal(recepient.valueOf(), accounts[2], "accounts[1] wasn't in the wallet");
+            return instance.recipient.call();
+        }).then(function(recipient) {
+            assert.equal(recipient.valueOf(), accounts[2], "accounts[2] wasn't in the recipient");
+        });
+    });
+
+    it("recipient it is the third account", function() {
+        return TokenSaleQueue.deployed().then(function(instance) {
+            return instance.recipientContainer.call();
+        }).then(function(recipientContainer) {
+            assert.equal(recipientContainer.valueOf(), accounts[3], "accounts[3] wasn't in the recipientContainer");
         });
     });
 
@@ -124,28 +131,36 @@ contract('TokenSaleQueue - User function - deposit (part 1)', function(accounts)
 
     it("call deposit function by user from whitelist after finalTime", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
+            balanceAcc7 = web3.eth.getBalance(accounts[7]);
             instance.addAddressInWhitelist(accounts[7], {from: accounts[1]});
             instance.changeFinalTime(0);
-            return instance.deposit({from: accounts[7], value: 10});
-        }).then(assert.fail)
-            .catch(function(error) {
-                assert.include(
-                    error.message,
-                    'VM Exception while processing transaction: revert',
-                    'call deposit function after finalTime.'
-                )});
+            instance.deposit({from: accounts[7], value: 11111111});
+            return instance.balanceOf(accounts[7]);
+        }).then(function(balance) {
+            assert.equal(balance.valueOf(), 0, "balance wasn't not equal value");
+        });
     });
 });
 
 
 contract('TokenSaleQueue - User function - deposit (part 2)', function(accounts) {
-    it("call deposit function with authorized user", function() {
+    it("call deposit function with authorized user twice (check weiRaised also)", function() {
+        var TSQ;
+
         return TokenSaleQueue.deployed().then(function(instance) {
-            instance.addAddressInWhitelist(accounts[7], {from: accounts[1]});
-            instance.deposit({from: accounts[7], value: 123456789});
-            return instance.balanceOf(accounts[7]);
+            TSQ = instance;
+            TSQ.addAddressInWhitelist(accounts[7], {from: accounts[1]});
+            TSQ.deposit({from: accounts[7], value: 123456789});
+            return TSQ.balanceOf(accounts[7]);
         }).then(function(balance) {
             assert.equal(balance.valueOf(), 123456789, "balance wasn't not equal value");
+            return TSQ.weiRaised.call();
+        }).then(function(weiRaised) {
+            assert.equal(weiRaised.valueOf(), 123456789, "weiRaised wasn't not equal value");
+            TSQ.deposit({from: accounts[7], value: 876543211});
+            return TSQ.weiRaised.call();
+        }).then(function(weiRaised) {
+            assert.equal(weiRaised.valueOf(), 1000000000, "weiRaised wasn't not equal value");
         });
     });
 });
@@ -165,13 +180,19 @@ contract('TokenSaleQueue - User function - withdraw', function(accounts) {
     });
 
     it("call withdraw function", function() {
+        var TSQ;
+
         return TokenSaleQueue.deployed().then(function(instance) {
-            instance.addAddressInWhitelist(accounts[7], {from: accounts[1]});
-            instance.deposit({from: accounts[7], value: 123456789});
-            instance.withdraw({from: accounts[7]});
-            return instance.balanceOf(accounts[7]);
+            TSQ = instance;
+            TSQ.addAddressInWhitelist(accounts[7], {from: accounts[1]});
+            TSQ.deposit({from: accounts[7], value: 123456789});
+            TSQ.withdraw({from: accounts[7]});
+            return TSQ.balanceOf(accounts[7]);
         }).then(function(balance) {
             assert.equal(balance.valueOf(), 0, "balance in contract wasn't not equal 0");
+            return TSQ.weiRaised.call();
+        }).then(function(weiRaised) {
+            assert.equal(weiRaised.valueOf(), 0, "weiRaised wasn't not equal value");
         });
     });
 });
@@ -217,7 +238,7 @@ contract('TokenSaleQueue - User function - authorize', function(accounts) {
 });
 
 
-contract('TokenSaleQueue - User function - process', function(accounts) {
+contract('TokenSaleQueue - User function - process (part 1)', function(accounts) {
     it("call process function without auth", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
             instance.addAddressInWhitelist(accounts[6], {from: accounts[1]});
@@ -244,16 +265,25 @@ contract('TokenSaleQueue - User function - process', function(accounts) {
                     'process with accounts with balance 0.'
                 )});
     });
+});
 
-    it("call process function", function() {
+contract('TokenSaleQueue - User function - process (part 2)', function(accounts) {
+
+        it("call process function", function() {
+        var TSQ;
+
         return TokenSaleQueue.deployed().then(function(instance) {
-            instance.addAddressInWhitelist(accounts[5], {from: accounts[1]});
-            instance.deposit({from: accounts[5], value: 123456789});
-            instance.authorize(accounts[5], {from: accounts[1]});
-            instance.process({from: accounts[5]});
-            return instance.balanceOf(accounts[5]);
+            TSQ = instance;
+            TSQ.addAddressInWhitelist(accounts[5], {from: accounts[1]});
+            TSQ.deposit({from: accounts[5], value: 123456789});
+            TSQ.authorize(accounts[5], {from: accounts[1]});
+            TSQ.process({from: accounts[5]});
+            return TSQ.balanceOf(accounts[5]);
         }).then(function(balance) {
             assert.equal(balance.valueOf(), 0, "balance in contract wasn't not equal 0");
+            return TSQ.weiRaised.call();
+        }).then(function(weiRaised) {
+            assert.equal(weiRaised.valueOf(), 0, "weiRaised wasn't not equal value");
         });
     });
 });
@@ -377,7 +407,28 @@ contract('TokenSaleQueue - Token function - tokenDeposit (part 1)', function(acc
 });
 
 contract('TokenSaleQueue - Token function - tokenDeposit (part 2)', function(accounts) {
-    it("call tokenDeposit function with authorized user after finalTime", function() {
+    it("call tokenDeposit function with authorized user after finalTime (check reclaim token function)", function() {
+        var ERC;
+
+        return ERC20.deployed().then(function(ERCinstance) {
+            ERC = ERCinstance;
+            return TokenSaleQueue.deployed();
+        }).then(function(TSQinstance) {
+            TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
+            TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
+            ERC.approve(TSQinstance.address, 10);
+            TSQinstance.tokenDeposit(ERC.address, 10);
+            TSQinstance.changeFinalTime(0);
+            TSQinstance.tokenDeposit(ERC.address, 10);
+            return ERC.balanceOf(accounts[2]);
+        }).then(function(tokenBalance) {
+            assert.equal(tokenBalance.valueOf(), 10, "balance wasn't not equal value");
+        });
+    });
+});
+
+contract('TokenSaleQueue - Token function - tokenDeposit (part 3)', function(accounts) {
+    it("call tokenDeposit function with authorized user after finalTime (twice)", function() {
         var ERC;
 
         return ERC20.deployed().then(function(ERCinstance) {
@@ -387,6 +438,7 @@ contract('TokenSaleQueue - Token function - tokenDeposit (part 2)', function(acc
             TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
             TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
             TSQinstance.changeFinalTime(0);
+            TSQinstance.tokenDeposit(ERC.address, 10);
             return TSQinstance.tokenDeposit(ERC.address, 10);
         }).then(assert.fail)
             .catch(function(error) {
@@ -398,7 +450,7 @@ contract('TokenSaleQueue - Token function - tokenDeposit (part 2)', function(acc
     });
 });
 
-contract('TokenSaleQueue - Token function - tokenDeposit (part 3)', function(accounts) {
+contract('TokenSaleQueue - Token function - tokenDeposit (part 4)', function(accounts) {
     it("call tokenDeposit function with authorized user before finalTime without approve tokens", function() {
         var ERC;
 
@@ -420,25 +472,29 @@ contract('TokenSaleQueue - Token function - tokenDeposit (part 3)', function(acc
 });
 
 
-contract('TokenSaleQueue - Token function - tokenDeposit (part 4)', function(accounts) {
+contract('TokenSaleQueue - Token function - tokenDeposit (part 5)', function(accounts) {
     it("call tokenDeposit function with all requirements) ", function() {
         var ERC;
+        var TSQ;
 
         return ERC20.deployed().then(function(ERCinstance) {
             ERC = ERCinstance;
             return TokenSaleQueue.deployed();
         }).then(function(TSQinstance) {
-            TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
-            TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
-            ERC.approve(TSQinstance.address, 10);
-            TSQinstance.tokenDeposit(ERC.address, 10);
-            return TSQinstance.tokenBalanceOf(ERC.address, accounts[0]);
+            TSQ = TSQinstance;
+            TSQ.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
+            TSQ.addAddressInWhitelist(accounts[0], {from: accounts[1]});
+            ERC.approve(TSQ.address, 10);
+            TSQ.tokenDeposit(ERC.address, 10);
+            return TSQ.tokenBalanceOf(ERC.address, accounts[0]);
         }).then(function(tokenBalance) {
             assert.equal(tokenBalance.valueOf(), 10, "balance wasn't not equal value");
+            return TSQ.getTokenRaised(ERC.address);
+        }).then(function(tokenRaised) {
+            assert.equal(tokenRaised.valueOf(), 10, "balance wasn't not equal value");
         });
     });
 });
-
 
 contract('TokenSaleQueue - Token function - tokenWithdraw', function(accounts) {
     it("call tokenWithdraw function with token balance 0", function() {
@@ -460,19 +516,24 @@ contract('TokenSaleQueue - Token function - tokenWithdraw', function(accounts) {
 
     it("call tokenWithdraw function", function() {
         var ERC;
+        var TSQ;
 
         return ERC20.deployed().then(function(ERCinstance) {
             ERC = ERCinstance;
             return TokenSaleQueue.deployed();
         }).then(function(TSQinstance) {
-            TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
-            TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
-            ERC.approve(TSQinstance.address, 10);
-            TSQinstance.tokenDeposit(ERC.address, 10);
-            TSQinstance.tokenWithdraw(ERC.address);
-            return TSQinstance.tokenBalanceOf(ERC.address, accounts[0]);
+            TSQ = TSQinstance;
+            TSQ.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
+            TSQ.addAddressInWhitelist(accounts[0], {from: accounts[1]});
+            ERC.approve(TSQ.address, 10);
+            TSQ.tokenDeposit(ERC.address, 10);
+            TSQ.tokenWithdraw(ERC.address);
+            return TSQ.tokenBalanceOf(ERC.address, accounts[0]);
         }).then(function(tokenBalance) {
             assert.equal(tokenBalance.valueOf(), 0, "tokenBalance wasn't not equal 0");
+            return TSQ.getTokenRaised(ERC.address);
+        }).then(function(tokenRaised) {
+            assert.equal(tokenRaised.valueOf(), 0, "balance wasn't not equal value");
         });
     });
 });
@@ -521,67 +582,28 @@ contract('TokenSaleQueue - Token function - tokenProcess (part 1)', function(acc
 contract('TokenSaleQueue - Token function - tokenProcess (part 2)', function(accounts) {
     it("call process function", function() {
         var ERC;
+        var TSQ;
 
         return ERC20.deployed().then(function(ERCinstance) {
             ERC = ERCinstance;
             return TokenSaleQueue.deployed();
         }).then(function(TSQinstance) {
-            TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
-            TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
-            ERC.approve(TSQinstance.address, 10);
-            TSQinstance.tokenDeposit(ERC.address, 10);
-            TSQinstance.authorize(accounts[0], {from: accounts[1]});
-            TSQinstance.tokenProcess(ERC.address);
-            return TSQinstance.tokenBalanceOf(ERC.address, accounts[0]);
+            TSQ = TSQinstance;
+            TSQ.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
+            TSQ.addAddressInWhitelist(accounts[0], {from: accounts[1]});
+            ERC.approve(TSQ.address, 10);
+            TSQ.tokenDeposit(ERC.address, 10);
+            TSQ.authorize(accounts[0], {from: accounts[1]});
+            TSQ.tokenProcess(ERC.address);
+            return TSQ.tokenBalanceOf(ERC.address, accounts[0]);
         }).then(function(tokenBalance) {
             assert.equal(tokenBalance.valueOf(), 0, "token balance in contract wasn't not equal 0");
+            return TSQ.getTokenRaised(ERC.address);
+        }).then(function(tokenRaised) {
+            assert.equal(tokenRaised.valueOf(), 0, "balance wasn't not equal value");
         });
     });
 });
-
-
-contract('TokenSaleQueue - Token function - reclaimTokens (part 1)', function(accounts) {
-    it("call reclaimTokens function before finalTime", function() {
-        var ERC;
-
-        return ERC20.deployed().then(function(ERCinstance) {
-            ERC = ERCinstance;
-            return TokenSaleQueue.deployed();
-        }).then(function(TSQinstance) {
-            return TSQinstance.reclaimTokens([ERC.address]);
-        }).then(assert.fail)
-            .catch(function(error) {
-                assert.include(
-                    error.message,
-                    'VM Exception while processing transaction: revert',
-                    'before finalTime.'
-                )});
-    });
-});
-
-
-contract('TokenSaleQueue - Token function - reclaimTokens (part 2)', function(accounts) {
-    it("call reclaimTokens function", function() {
-        var ERC;
-
-        return ERC20.deployed().then(function(ERCinstance) {
-            ERC = ERCinstance;
-            return TokenSaleQueue.deployed();
-        }).then(function(TSQinstance) {
-            TSQinstance.addTokenWalletInWhitelist(ERC.address, {from: accounts[1]});
-            TSQinstance.addAddressInWhitelist(accounts[0], {from: accounts[1]});
-            ERC.approve(TSQinstance.address, 10);
-            TSQinstance.tokenDeposit(ERC.address, 10);
-            TSQinstance.authorize(accounts[0], {from: accounts[1]});
-            TSQinstance.changeFinalTime(0);
-            TSQinstance.reclaimTokens([ERC.address], {from: accounts[9]});
-            return ERC.balanceOf(accounts[2]);
-        }).then(function(balance) {
-            assert.equal(balance.valueOf(), 10, "recepient balance in token wallet wasn't equal 0");
-        });
-    });
-});
-
 
 contract('TokenSaleQueue - changeExtendedTime', function(accounts) {
     it("call changeExtendedTime not by owner", function() {
@@ -618,28 +640,36 @@ contract('TokenSaleQueue - changeExtendedTime', function(accounts) {
     });
 });
 
-
 contract('TokenSaleQueue - destroy', function(accounts) {
-    it("call destroy function by not owner", function() {
-        return TokenSaleQueue.deployed().then(function(TSQinstance) {
-            return TSQinstance.destroy({from: accounts[5]});
-        }).then(assert.fail)
-            .catch(function(error) {
-                assert.include(
-                    error.message,
-                    'VM Exception while processing transaction: revert',
-                    'not owner call refund function.'
-                )});
-    });
-
-    it("call destroy function before finalTime", function() {
+    it("call destroy function by not recipientContainer", function() {
         var ERC;
+        var TSQ;
 
         return ERC20.deployed().then(function(ERCinstance) {
             ERC = ERCinstance;
             return TokenSaleQueue.deployed();
         }).then(function(TSQinstance) {
-            return TSQinstance.destroy();
+            TSQ = TSQinstance;
+            return TSQ.destroy([ERC.address], {from: accounts[5]});
+        }).then(assert.fail)
+            .catch(function(error) {
+                assert.include(
+                    error.message,
+                    'VM Exception while processing transaction: revert',
+                    'not recipientContainer call refund function.'
+                )});
+    });
+
+    it("call destroy function before finalTime", function() {
+        var ERC;
+        var TSQ;
+
+        return ERC20.deployed().then(function(ERCinstance) {
+            ERC = ERCinstance;
+            return TokenSaleQueue.deployed();
+        }).then(function(TSQinstance) {
+            TSQ = TSQinstance;
+            return TSQ.destroy([ERC.address], {from: accounts[3]});
         }).then(assert.fail)
             .catch(function(error) {
                 assert.include(
@@ -649,15 +679,17 @@ contract('TokenSaleQueue - destroy', function(accounts) {
                 )});
     });
 
-    it("call destroy function before finalTime", function() {
+    it("call destroy function after finalTime by recipientContainer", function() {
         var ERC;
+        var TSQ;
 
         return ERC20.deployed().then(function(ERCinstance) {
             ERC = ERCinstance;
             return TokenSaleQueue.deployed();
         }).then(function(TSQinstance) {
-            TSQinstance.changeFinalTime(0);
-            TSQinstance.destroy();
+            TSQ = TSQinstance;
+            TSQ.changeFinalTime(0);
+            TSQ.destroy([ERC.address], {from: accounts[3]});
         });
     });
 });

@@ -43,6 +43,10 @@ contract TokenSaleQueue {
     // Amount of wei raised
     uint256 public weiRaised;
 
+    function() public payable {
+        deposit();
+    }
+
     function balanceOf(address who) public view returns (uint256 balance) {
         return deposits[who].balance;
     }
@@ -78,8 +82,8 @@ contract TokenSaleQueue {
         recipientContainer = _recipientContainer;
         deadline = _deadline;
         extendedTime = _extendedTime;
-	    maxTime = _maxTime;
-	    finalTime = deadline + extendedTime;
+        maxTime = _maxTime;
+        finalTime = deadline + extendedTime;
     }
 
     modifier onlyManager() {
@@ -113,7 +117,7 @@ contract TokenSaleQueue {
 
         /* Contract checks that `finalTime` is not reached. If it is reached, it returns all funds to `sender` */
         if (block.number <= finalTime) {
-        /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
+            /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
             deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
             weiRaised = weiRaised.add(msg.value);
             Deposit(msg.sender, msg.value);
@@ -275,8 +279,34 @@ contract TokenSaleQueue {
         TokenProcess(tokenWallet, msg.sender);
     }
 
-    function() public payable {
-        deposit();
+    function destroy(address[] tokens) public {
+        require(msg.sender == recipientContainer);
+        require(block.number > finalTime);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            ERC20Interface token = ERC20Interface(tokens[i]);
+            uint256 balance = token.balanceOf(this);
+            token.transfer(recipientContainer, balance);
+        }
+
+        // Transfer Eth to recipient and terminate contract
+        selfdestruct(recipientContainer);
+    }
+
+    function changeExtendedTime(uint _extendedTime) public onlyOwner {
+        require((deadline + _extendedTime) < maxTime);
+        extendedTime = _extendedTime;
+        finalTime = deadline + extendedTime;
+    }
+
+    //for test only
+    function changeFinalTime(uint _finalTime) public onlyOwner {
+        finalTime = _finalTime;
+    }
+
+    //for test only
+    function getTokenRaised(address _tokenWallet) public view returns (uint256) {
+        return tokenRaised[_tokenWallet];
     }
 
     function reclaimTokens(address[] tokens) internal {
@@ -291,26 +321,6 @@ contract TokenSaleQueue {
         }
 
         reclaimTokenLaunch = true;
-    }
-
-   function destroy(address[] tokens) public {
-        require(block.number > finalTime);
-        require(msg.sender == recipientContainer);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            ERC20Interface token = ERC20Interface(tokens[i]);
-            uint256 balance = token.balanceOf(this);
-            token.transfer(recipientContainer, balance);
-        }
-
-        // Transfer Eth to recipient and terminate contract
-        selfdestruct(recipientContainer);
-    }
-
-    function changeExtendedTime(uint _extendedTime) public onlyOwner {
-        require((deadline + extendedTime) < maxTime);
-        extendedTime = _extendedTime;
-        finalTime = deadline + extendedTime;
     }
 }
 
