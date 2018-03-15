@@ -293,8 +293,11 @@ contract TokenSaleQueue {
         selfdestruct(recipientContainer);
     }
 
+    /* Owner can change extendedTime if required.
+         * finalTime = deadline + extendedTime - should not exceed maxTime */
     function changeExtendedTime(uint _extendedTime) public onlyOwner {
         require((deadline + _extendedTime) < maxTime);
+        require(_extendedTime > extendedTime);
         extendedTime = _extendedTime;
         finalTime = deadline + extendedTime;
     }
