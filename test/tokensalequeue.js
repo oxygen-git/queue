@@ -630,12 +630,24 @@ contract('TokenSaleQueue - changeExtendedTime', function(accounts) {
                 )});
     });
 
+  it("call changeExtendedTime with small input parameter", function() {
+    return TokenSaleQueue.deployed().then(function(instance) {
+      return instance.changeExtendedTime(10);
+    }).then(assert.fail)
+      .catch(function(error) {
+        assert.include(
+          error.message,
+          'VM Exception while processing transaction: revert',
+          '_extendedTime < extendedTime.'
+        )});
+  });
+
     it("call changeExtendedTime", function() {
         return TokenSaleQueue.deployed().then(function(instance) {
-            instance.changeExtendedTime(10);
+            instance.changeExtendedTime(1500);
             return instance.finalTime.call();
         }).then(function(finalTime) {
-            assert.equal(finalTime.valueOf(), 5300010, "finalTime wasn't equal 5300010");
+            assert.equal(finalTime.valueOf(), 5301500, "finalTime wasn't equal 5300010");
         });
     });
 });
