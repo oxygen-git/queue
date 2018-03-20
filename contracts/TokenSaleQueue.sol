@@ -6,10 +6,16 @@ contract ERC20Interface {
     function balanceOf(address who) public view returns (uint256);
 }
 
-/* 1. Contract is initiated by storing sender as OWNER and with three arguments:
- * deadline : block.number which is also stored as DEADLINE
- * manager : address which is also stored as MANAGER. */
-/* Only MANAGER is eglible to perform core functions like authorizing participants as confirmed investors and withdrawing their money as Token sale funds. */
+/* 1. Contract is initiated by storing sender as OWNER and with following arguments:
+ * deadline : block.number which defines deadline of users authorisation and funds processing
+ * extendedTime : number of blocks which defines extension of deadline
+ * maxTime : block.number which defines maximum period for deadline extension
+ * manager : address which is set as MANAGER.
+ * Only MANAGER is allowed to perform operational functions:
+ * - to authorize users in General Token Sale
+ * - to add Tokens to the List of acceptable tokens
+ * recipient : multisig contract to collect unclaimed funds
+ * recipientContainer : multisig contract to collect other funds which remain on contract after deadline */
 contract TokenSaleQueue {
     using SafeMath for uint256;
 
@@ -24,29 +30,36 @@ contract TokenSaleQueue {
         return owner;
     }
 
-    /* 2. Contract has internal mapping DEPOSITS : Address -> (balance: uint, authorized: bool) representing balance of everyone whoever used deposit method */
-    /* This is where balances of all participants stored. Additional flag of whether the participant is authorized investor is stored. This flag determines if the participant funds can be further processed by the contract manager (see 5., 6.) */
+    /* Struct with  properties of each record for 'deposits' mapping */
     struct Record {
         uint256 balance;
         bool authorized;
     }
-
+    /* Contract has internal mapping `deposits`:
+     * Address -> (balance: uint, authorized: bool).
+     * It represents balance of everyone whoever used `deposit` method.
+     *
+     * This is where balances of all participants are stored. Additional flag of
+     * whether the participant is authorized investor is stored. This flag
+     * determines if the participant has passed AML/KYC check and reservation
+     * payment can be transferred to general Token Sale  */
     mapping(address => Record) public deposits;
-    address public manager;
-    address public recipient;
-    address public recipientContainer;
+    address public manager; /* Contract administrator */
+    address public recipient; /* Unclaimed funds collector */
+    address public recipientContainer; /* Undefined funds collector */
     uint public deadline; /* blocks */
     uint public extendedTime; /* blocks */
     uint public maxTime; /* blocks */
-    uint public finalTime;
+    uint public finalTime; /* deadline + extendedTime - blocks */
 
-    // Amount of wei raised
+    /* Amount of wei raised */
     uint256 public weiRaised;
 
     function() public payable {
         deposit();
     }
 
+    /* A set of functions to get required variables */
     function balanceOf(address who) public view returns (uint256 balance) {
         return deposits[who].balance;
     }
@@ -63,6 +76,7 @@ contract TokenSaleQueue {
         return manager;
     }
 
+    /* Contract has events for integration purposes */
     event Whitelist(address who);
     event Deposit(address who, uint256 amount);
     event Withdrawal(address who);
@@ -70,6 +84,7 @@ contract TokenSaleQueue {
     event Process(address who);
     event Refund(address who);
 
+    /* `TokenSaleQueue` is executed after the contract deployment, it sets up the Contract */
     function TokenSaleQueue(address _owner, address _manager,  address _recipient, address _recipientContainer, uint _deadline, uint _extendedTime, uint _maxTime) public {
         require(_owner != address(0));
         require(_manager != address(0));
@@ -91,10 +106,11 @@ contract TokenSaleQueue {
         _;
     }
 
-    /* Contract has map whitelist with address argument */
+    /* Contract has mapping `whitelist`.
+     * It contains participants addresses which have passed AML check and are allowed to deposit funds */
     mapping(address => bool) whitelist;
 
-    /* Manager adds user in white list - operation that allows to use deposit function */
+    /* Manager adds user to whitelist by executing function `addAddressInWhitelist` */
     /* Contract checks if sender is equal to manager */
     function addAddressInWhitelist(address who) public onlyManager {
         require(who != address(0));
@@ -106,18 +122,20 @@ contract TokenSaleQueue {
         return whitelist[who];
     }
 
-    /* 3. Contract has payable method deposit */
-    /* This is how participant puts his funds in the queue for further processing. Participant can later withdraw his funds unless they are processed by the contract owner (6.) */
+    /* 3. Contract has payable method deposit
+     * Partisipant transfers reservation payment in Ether by executing this method.
+     * Participant can withdraw funds at anytime (4.) */
     function deposit() public payable {
         /* Contract checks that method invocation attaches non-zero value. */
         require(msg.value > 0);
 
-        /* Contract checks that user in whitelist */
+        /* Contract checks whether the user is in whitelist */
         require(whitelist[msg.sender]);
 
-        /* Contract checks that `finalTime` is not reached. If it is reached, it returns all funds to `sender` */
+        /* Contract checks if `finalTime` is not reached.
+         * If reached, it returns funds to `sender` and transfers uclaimed Ether to recipient. */
         if (block.number <= finalTime) {
-            /* Contract adds value sent to the corresponding mapping stored in DEPOSIT using sender as a key */
+            /* Contract adds value sent to the participant's balance in `deposit` mapping */
             deposits[msg.sender].balance = deposits[msg.sender].balance.add(msg.value);
             weiRaised = weiRaised.add(msg.value);
             Deposit(msg.sender, msg.value);
@@ -131,47 +149,48 @@ contract TokenSaleQueue {
         }
     }
 
-    /* 4. Contract has method withdraw without amount argument */
-    /* Ability to withdraw funds for participant which he earlier had put in the contract using deposit function (1.) */
+    /* 4. Contract has method withdraw
+     * Participant can withdraw reservation payment in Ether deposited with deposit function (1.).
+     * This method can be executed at anytime. */
     function withdraw() public {
-        /* Contract checks that balance of the sender in DEPOSITS mapping is equal amount */
+        /* Contract checks that balance of the sender in `deposits` mapping is a non-zero value */
         Record storage record = deposits[msg.sender];
         require(record.balance > 0);
 
         uint256 balance = record.balance;
-        /* Contract sets the amount in corresponding record in DEPOSITS mapping to zero */
+        /* Contract sets participant's balance to zero in `deposits` mapping */
         record.balance = 0;
 
         weiRaised = weiRaised.sub(balance);
-        /* Contract transfers amount to the sender from it's own balance */
+        /* Contract transfers sender's ETH balance to his address */
         msg.sender.transfer(balance);
         Withdrawal(msg.sender);
     }
 
     /* 5. Contract has method authorize with address argument */
-    /* Manager authorizes particular participant - operation that allows to use participant money in Token Sale */
+    /* Manager authorizes particular participant to transfer reservation payment to Token Sale */
     function authorize(address who) onlyManager public {
         /* Contract checks if sender is equal to manager */
         require(who != address(0));
 
         Record storage record = deposits[who];
 
-        /* Contract updates corresponding value in DEPOSITS mapping using address as the key and sets authorized = true */
+        /* Contract updates value in `whitelist` mapping and flags participant as authorized */
         record.authorized = true;
         Authorized(who);
     }
 
     /* 6. Contract has method process */
-    /* Sender does final confirmation that his money will be used in the Token Sale */
+    /* Sender transfers reservation payment in Ether to owner to be redirected to the Token Sale */
     function process() public {
         Record storage record = deposits[msg.sender];
 
-        /* Contract checks if value of DEPOSITS with sender key has non-zero balance and authorized is set true */
+        /* Contract checks whether participant's `deposits` balance is a non-zero value and authorized is set to true */
         require(record.authorized);
         require(record.balance > 0);
 
         uint256 balance = record.balance;
-        /* Contract sets balance of the sender entry to zero in the DEPOSITS */
+        /* Contract sets balance of the sender entry to zero in the `deposits` */
         record.balance = 0;
 
         weiRaised = weiRaised.sub(balance);
@@ -182,16 +201,22 @@ contract TokenSaleQueue {
         Process(msg.sender);
     }
 
-    /* Contract has internal mapping token DEPOSITS : Address -> (balance: uint, authorized: bool) representing token balance of everyone whoever used deposit method */
-    /* This is where token balances of all participants stored. Additional flag of whether the participant is authorized investor is stored. This flag determines if the participant tokens can be further processed by the contract manager (see 11, 12) */
+    /* Contract has internal mapping `tokenDeposits`:
+     * Address -> (balance: uint, authorized: bool)
+     *
+     * It represents token balance of everyone whoever used `tokenDeposit`
+     * method and stores token balances of all participants. It stores aditional
+     * flag of whether the participant is authorized, which determines if the
+     * participant's reservation payment in tokens can be transferred to General Token Sale */
     mapping(address => mapping(address => uint256)) public tokenDeposits;
 
-    /* White list of tokens */
+    /* Whitelist of tokens which can be accepted as reservation payment */
     mapping(address => bool) public tokenWalletsWhitelist;
     address[] tokenWallets;
     mapping(address => uint256) public tokenRaised;
     bool reclaimTokenLaunch = false;
 
+    /* Manager can add tokens to whitelist. */
     function addTokenWalletInWhitelist(address tokenWallet) public onlyManager {
         require(tokenWallet != address(0));
         require(!tokenWalletsWhitelist[tokenWallet]);
@@ -208,32 +233,33 @@ contract TokenSaleQueue {
         return tokenDeposits[tokenWallet][who];
     }
 
+    /* Another list of events for integrations */
     event TokenWhitelist(address tokenWallet);
     event TokenDeposit(address tokenWallet, address who, uint256 amount);
     event TokenWithdrawal(address tokenWallet, address who);
     event TokenProcess(address tokenWallet, address who);
     event TokenRefund(address tokenWallet, address who);
 
-    /* 9. Contract has method token deposit */
-    /* This is how participant puts his funds in the queue for further processing. Participant can later withdraw his token unless they are processed by the conract owner (12.) */
+    /* 7. Contract has method tokenDeposit
+     * Partisipant transfers reservation payment in tokens by executing this method.
+     * Participant can withdraw funds in tokens at anytime (8.) */
     function tokenDeposit(address tokenWallet, uint amount) public {
         /* Contract checks that method invocation attaches non-zero value. */
         require(amount > 0);
 
-        /* Contract checks that token wallet in whitelist */
+        /* Contract checks whether token wallet in whitelist */
         require(tokenWalletsWhitelist[tokenWallet]);
 
-        /* Contract checks that user in whitelist */
+        /* Contract checks whether user in whitelist */
         require(whitelist[msg.sender]);
 
-        /* msg.sender initiate transferFrom function from ERC20 contract */
+        /* msg.sender initiates transferFrom function from ERC20 contract */
         ERC20Interface ERC20Token = ERC20Interface(tokenWallet);
 
-        /* Contract checks that `finalTime` is not reached. */
+        /* Contract checks if `finalTime` is not reached. */
         if (block.number <= finalTime) {
             require(ERC20Token.transferFrom(msg.sender, this, amount));
 
-            /* Contract adds value sent to the corresponding mapping stored in token DEPOSIT using sender as a key */
             tokenDeposits[tokenWallet][msg.sender] = tokenDeposits[tokenWallet][msg.sender].add(amount);
             tokenRaised[tokenWallet] = tokenRaised[tokenWallet].add(amount);
             TokenDeposit(tokenWallet, msg.sender, amount);
@@ -242,33 +268,35 @@ contract TokenSaleQueue {
         }
     }
 
-    /* 10. Contract has method token withdraw without amount argument */
-    /* Ability to withdraw funds for participant which he earlier had put in the contract using deposit function (9.) */
+    /* 8. Contract has method tokenWithdraw
+     * Participant can withdraw reservation payment in tokens deposited with tokenDeposit function (7.).
+     * This method can be executed at anytime. */
     function tokenWithdraw(address tokenWallet) public {
-        /* Contract checks that balance of the sender in token DEPOSITS mapping is equal amount */
+        /* Contract checks whether balance of the sender in `tokenDeposits` mapping is a non-zero value */
         require(tokenDeposits[tokenWallet][msg.sender] > 0);
 
         uint256 balance = tokenDeposits[tokenWallet][msg.sender];
-        /* Contract sets the amount in corresponding record in DEPOSITS mapping to zero */
+        /* Contract sets sender token balance in `tokenDeposits` to zero */
         tokenDeposits[tokenWallet][msg.sender] = 0;
         tokenRaised[tokenWallet] = tokenRaised[tokenWallet].sub(balance);
 
-        /* Contract transfers amount to the sender from it's own balance */
+        /* Contract transfers tokens to the sender from contract balance */
         ERC20Interface ERC20Token = ERC20Interface(tokenWallet);
         require(ERC20Token.transfer(msg.sender, balance));
 
         TokenWithdrawal(tokenWallet, msg.sender);
     }
 
-    /* 12. Contract has method token process */
-    /* Sender does final confirmation that his tokens will be used in the Token Sale */
+    /* 9. Contract has method tokenProcess */
+    /* Sender transfers reservation payment in tokens to owner to be redirected to the Token Sale */
     function tokenProcess(address tokenWallet) public {
-        /* Contract checks if value of token DEPOSITS with sender key has non-zero balance and authorized is set true */
+        /* Contract checks that balance of the sender in `tokenDeposits` mapping
+         * is a non-zero value and sender is authorized */
         require(deposits[msg.sender].authorized);
         require(tokenDeposits[tokenWallet][msg.sender] > 0);
 
         uint256 balance = tokenDeposits[tokenWallet][msg.sender];
-        /* Contract sets balance of the sender entry to zero in the DEPOSITS */
+        /* Contract sets sender balance to zero for the specified token */
         tokenDeposits[tokenWallet][msg.sender] = 0;
         tokenRaised[tokenWallet] = tokenRaised[tokenWallet].sub(balance);
 
@@ -279,22 +307,25 @@ contract TokenSaleQueue {
         TokenProcess(tokenWallet, msg.sender);
     }
 
+    /* recipientContainer can transfer undefined funds to itself and terminate
+     * the Contract after finalDate */
     function destroy(address[] tokens) public {
         require(msg.sender == recipientContainer);
         require(block.number > finalTime);
 
+        /* Transfer undefined tokens to recipientContainer */
         for (uint256 i = 0; i < tokens.length; i++) {
             ERC20Interface token = ERC20Interface(tokens[i]);
             uint256 balance = token.balanceOf(this);
             token.transfer(recipientContainer, balance);
         }
 
-        // Transfer Eth to recipient and terminate contract
+        /* Transfer undefined Eth to recipientContainer and terminate contract */
         selfdestruct(recipientContainer);
     }
 
     /* Owner can change extendedTime if required.
-         * finalTime = deadline + extendedTime - should not exceed maxTime */
+     * finalTime = deadline + extendedTime - should not exceed maxTime */
     function changeExtendedTime(uint _extendedTime) public onlyOwner {
         require((deadline + _extendedTime) < maxTime);
         require(_extendedTime > extendedTime);
@@ -312,10 +343,11 @@ contract TokenSaleQueue {
         return tokenRaised[_tokenWallet];
     }
 
+    /* Internal method which retrieves unclaimed funds in tokens */
     function reclaimTokens(address[] tokens) internal {
         require(!reclaimTokenLaunch);
 
-        // Transfer tokens to recipient
+        /* Transfer tokens to recipient */
         for (uint256 i = 0; i < tokens.length; i++) {
             ERC20Interface token = ERC20Interface(tokens[i]);
             uint256 balance = tokenRaised[tokens[i]];
